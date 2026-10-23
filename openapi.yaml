@@ -1,0 +1,464 @@
+openapi: 3.0.3
+info:
+  title: SpotAPI Wrapper Backend
+  version: 1.0.2
+  description: |
+    v1 contract for a small backend that wraps the unofficial `spotapi` Python library
+    so an Android client (Kiko Companion) can control Spotify playback. Implemented in app/.
+    1.0.1 (backward compatible): documented 404 on /auth/pair when pairing is disabled, 429/503 on
+    POST /spotify/session, 503 TOKEN_UNAVAILABLE on all player endpoints, extra sp_* cookies allowed.
+    1.0.2 (backward compatible): documented GET /lyrics.
+    The backend stores the user's Spotify cookies encrypted server-side and never returns them.
+    Player endpoints require a Spotify client that is already online as a Connect device.
+servers:
+  - url: https://{host}/api/v1
+    description: HTTPS (e.g. tailscale serve)
+    variables:
+      host:
+        default: example.com
+  - url: http://{host}:{port}/api/v1
+    description: Plain HTTP inside a tailnet
+    variables:
+      host:
+        default: my-server
+      port:
+        default: '8080'
+security:
+  - appToken: []
+tags:
+  - name: auth
+  - name: spotify-session
+  - name: player
+  - name: system
+paths:
+  /health:
+    get:
+      tags: [system]
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, version]
+                properties:
+                  ok: { type: boolean, example: true }
+                  version: { type: string, example: 1.0.2 }
+  /auth/pair:
+    post:
+      tags: [auth]
+      summary: Exchange a one-time pairing code for an app token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PairRequest'
+      responses:
+        '200':
+          description: Paired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PairResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: Pairing disabled (no PAIRING_CODE configured); error code BAD_REQUEST
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /spotify/session:
+    get:
+      tags: [spotify-session]
+      summary: Get Spotify session status
+      responses:
+        '200':
+          description: Session status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionStatus'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [spotify-session]
+      summary: Store and validate Spotify cookies (sent once from WebView login)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionCreateRequest'
+      responses:
+        '200':
+          description: Connected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionStatus'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '502': { $ref: '#/components/responses/Upstream' }
+        '503': { $ref: '#/components/responses/TokenUnavailable' }
+    delete:
+      tags: [spotify-session]
+      summary: Delete stored Spotify cookies
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /play:
+    post:
+      tags: [player]
+      summary: Search and play on the active (or given) device
+      description: Provide either `query` or `uri`. Implemented via queue + skip_next.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlayRequest'
+      responses:
+        '200':
+          description: Playing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SessionMissing' }
+        '404': { $ref: '#/components/responses/NoResults' }
+        '409': { $ref: '#/components/responses/NoActiveDevice' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '502': { $ref: '#/components/responses/Upstream' }
+        '503': { $ref: '#/components/responses/TokenUnavailable' }
+  /pause:
+    post:
+      tags: [player]
+      summary: Pause playback
+      requestBody: { $ref: '#/components/requestBodies/DeviceCommand' }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SessionMissing' }
+        '409': { $ref: '#/components/responses/NoActiveDevice' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '502': { $ref: '#/components/responses/CommandFailed' }
+        '503': { $ref: '#/components/responses/TokenUnavailable' }
+  /resume:
+    post:
+      tags: [player]
+      summary: Resume playback
+      requestBody: { $ref: '#/components/requestBodies/DeviceCommand' }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SessionMissing' }
+        '409': { $ref: '#/components/responses/NoActiveDevice' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '502': { $ref: '#/components/responses/CommandFailed' }
+        '503': { $ref: '#/components/responses/TokenUnavailable' }
+  /next:
+    post:
+      tags: [player]
+      summary: Skip to next track
+      requestBody: { $ref: '#/components/requestBodies/DeviceCommand' }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SessionMissing' }
+        '409': { $ref: '#/components/responses/NoActiveDevice' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '502': { $ref: '#/components/responses/CommandFailed' }
+        '503': { $ref: '#/components/responses/TokenUnavailable' }
+  /prev:
+    post:
+      tags: [player]
+      summary: Skip to previous track
+      requestBody: { $ref: '#/components/requestBodies/DeviceCommand' }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SessionMissing' }
+        '409': { $ref: '#/components/responses/NoActiveDevice' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '502': { $ref: '#/components/responses/CommandFailed' }
+        '503': { $ref: '#/components/responses/TokenUnavailable' }
+  /now-playing:
+    get:
+      tags: [player]
+      summary: Current playback state
+      description: Returns 200 with track null and active_device_id null when no device is active.
+      responses:
+        '200':
+          description: State
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NowPlaying'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SessionMissing' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '502': { $ref: '#/components/responses/Upstream' }
+        '503': { $ref: '#/components/responses/TokenUnavailable' }
+  /lyrics:
+    get:
+      tags: [player]
+      summary: Lyrics for a track
+      description: |
+        Spotify color-lyrics first (same source as the Spotify apps), then lrclib.net as fallback.
+        When synced is false every start_ms is 0. Exactly one of uri / track_id is needed.
+      parameters:
+        - in: query
+          name: uri
+          schema: { type: string, example: 'spotify:track:20jbSiX29FDX4oQxBXyUEi' }
+          description: spotify:track:ID, open.spotify.com/track/ID URL, or bare ID
+        - in: query
+          name: track_id
+          schema: { type: string, example: 20jbSiX29FDX4oQxBXyUEi }
+      responses:
+        '200':
+          description: Lyrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LyricsResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SessionMissing' }
+        '404': { $ref: '#/components/responses/NoResults' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '502': { $ref: '#/components/responses/Upstream' }
+        '503': { $ref: '#/components/responses/TokenUnavailable' }
+  /devices:
+    get:
+      tags: [player]
+      summary: List Spotify Connect devices
+      responses:
+        '200':
+          description: Devices
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DevicesResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SessionMissing' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '502': { $ref: '#/components/responses/Upstream' }
+        '503': { $ref: '#/components/responses/TokenUnavailable' }
+components:
+  securitySchemes:
+    appToken:
+      type: http
+      scheme: bearer
+      description: Opaque random app token from /auth/pair (not a JWT). Revocable.
+  requestBodies:
+    DeviceCommand:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/DeviceCommandRequest'
+  schemas:
+    PairRequest:
+      type: object
+      required: [pairing_code, device_name]
+      properties:
+        pairing_code: { type: string, example: 483-219 }
+        device_name: { type: string, example: Pixel 8 }
+    PairResponse:
+      type: object
+      required: [app_token]
+      properties:
+        app_token: { type: string, example: sk_live_xxx }
+        expires_at: { type: string, format: date-time, nullable: true }
+    SessionCreateRequest:
+      type: object
+      required: [cookies]
+      properties:
+        cookies:
+          type: object
+          required: [sp_dc]
+          description: WebView cookies. Other sp_* cookies may be included (string values).
+          additionalProperties: { type: string }
+          properties:
+            sp_dc: { type: string, minLength: 10 }
+            sp_key: { type: string }
+            sp_t: { type: string }
+    SessionStatus:
+      type: object
+      required: [connected]
+      properties:
+        connected: { type: boolean, example: true }
+        username: { type: string, nullable: true, example: 31abcdefghijklmnopqrstuvwxyz }
+        display_name: { type: string, nullable: true, example: Jane }
+        product: { type: string, nullable: true, example: FREE }
+        checked_at: { type: string, format: date-time, nullable: true }
+    PlayRequest:
+      type: object
+      properties:
+        query: { type: string, example: hate that i made you love me }
+        uri: { type: string, example: 'spotify:track:20jbSiX29FDX4oQxBXyUEi', description: 'Track only: spotify:track:ID, open.spotify.com/track/ID URL, or bare ID. Mutually exclusive with query.' }
+        index: { type: integer, minimum: 0, maximum: 99, default: 0 }
+        device_id: { type: string, nullable: true }
+    Track:
+      type: object
+      required: [uri, title, artists]
+      properties:
+        uri: { type: string }
+        title: { type: string }
+        artists:
+          type: array
+          items: { type: string }
+        album: { type: string, nullable: true }
+        duration_ms: { type: integer, nullable: true }
+        image_url: { type: string, nullable: true }
+    PlayResponse:
+      type: object
+      required: [ok, track, device_id]
+      properties:
+        ok: { type: boolean, example: true }
+        track: { $ref: '#/components/schemas/Track' }
+        device_id: { type: string }
+    DeviceCommandRequest:
+      type: object
+      properties:
+        device_id: { type: string, nullable: true }
+    OkResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean, example: true }
+    NowPlaying:
+      type: object
+      required: [is_playing, track, active_device_id]
+      properties:
+        is_playing: { type: boolean, description: True only while audio is actually playing (not paused) }
+        is_paused: { type: boolean, nullable: true }
+        track:
+          allOf: [{ $ref: '#/components/schemas/Track' }]
+          nullable: true
+        position_ms: { type: integer, nullable: true }
+        active_device_id: { type: string, nullable: true }
+        device_name: { type: string, nullable: true }
+    Device:
+      type: object
+      required: [id, name, type, is_active, can_play]
+      properties:
+        id: { type: string }
+        name: { type: string, example: Web Player (Chrome) }
+        type: { type: string, example: COMPUTER }
+        is_active: { type: boolean }
+        can_play: { type: boolean }
+        volume_percent: { type: integer, minimum: 0, maximum: 100, nullable: true }
+    DevicesResponse:
+      type: object
+      required: [active_device_id, devices]
+      properties:
+        active_device_id: { type: string, nullable: true }
+        devices:
+          type: array
+          items: { $ref: '#/components/schemas/Device' }
+    LyricsLine:
+      type: object
+      required: [start_ms, text]
+      properties:
+        start_ms: { type: integer, example: 12340 }
+        text: { type: string, example: First line of the song }
+    LyricsResponse:
+      type: object
+      required: [track_id, synced, source, lines]
+      properties:
+        track_id: { type: string, example: 20jbSiX29FDX4oQxBXyUEi }
+        synced: { type: boolean }
+        source: { type: string, enum: [spotify, lrclib] }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/LyricsLine' }
+    ErrorCode:
+      type: string
+      enum:
+        - BAD_REQUEST
+        - UNAUTHORIZED
+        - INVALID_COOKIES
+        - SPOTIFY_SESSION_INVALID
+        - SPOTIFY_SESSION_MISSING
+        - NO_RESULTS
+        - NO_ACTIVE_DEVICE
+        - RATE_LIMITED
+        - COMMAND_FAILED
+        - SPOTIFY_UPSTREAM
+        - TOKEN_UNAVAILABLE
+    Error:
+      type: object
+      required: [ok, error]
+      properties:
+        ok: { type: boolean, example: false }
+        error:
+          type: object
+          required: [code, message, retryable]
+          properties:
+            code: { $ref: '#/components/schemas/ErrorCode' }
+            message: { type: string }
+            retryable: { type: boolean }
+  responses:
+    Ok:
+      description: OK
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/OkResponse' }
+    BadRequest:
+      description: BAD_REQUEST or INVALID_COOKIES
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: UNAUTHORIZED (bad app token) or SPOTIFY_SESSION_INVALID (re-login)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    SessionMissing:
+      description: SPOTIFY_SESSION_MISSING
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NoResults:
+      description: NO_RESULTS
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NoActiveDevice:
+      description: NO_ACTIVE_DEVICE (open Spotify on a device, then retry)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: RATE_LIMITED
+      headers:
+        Retry-After:
+          schema: { type: integer }
+          description: Seconds to wait
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    CommandFailed:
+      description: COMMAND_FAILED
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Upstream:
+      description: SPOTIFY_UPSTREAM (retryable)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TokenUnavailable:
+      description: TOKEN_UNAVAILABLE (retryable)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

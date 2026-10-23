@@ -1,0 +1,35 @@
+services:
+  spotapi:
+    build: .
+    image: spotapi-backend:1.0.2
+    container_name: spotapi-backend
+    restart: unless-stopped
+    # Optional fallback. dealer.spotify.com (Spotify's websocket "dealer") only has IPv6 (AAAA)
+    # records; on hosts without IPv6 the player websocket cannot connect. The vendored spotapi
+    # already asks apresolve for IPv4 dealers first; these pins are a belt-and-braces fallback.
+    # Remove them if your host has working IPv6 or if the IPs ever stop working.
+    extra_hosts:
+      - "dealer.spotify.com:35.186.224.34"
+      - "dealer.spotify.com:35.186.224.38"
+    init: true
+    env_file: .env
+    environment:
+      PORT: ${PORT:-8080}
+      DATA_DIR: /data
+    # Container runs as uid:gid below; ./data must be writable by it (see README).
+    user: "${PUID:-1000}:${PGID:-1000}"
+    ports:
+      # BIND_ADDR: set to the host's Tailscale IP (100.x.y.z) to expose only on the tailnet.
+      - "${BIND_ADDR:-0.0.0.0}:${PORT:-8080}:${PORT:-8080}"
+    volumes:
+      - ./data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"

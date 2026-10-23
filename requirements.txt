@@ -1,0 +1,17 @@
+# Backend
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+cryptography==44.0.0
+pydantic==2.10.4
+# spotapi (vendored) runtime deps — pinned as in vendor/spotapi/requirements.txt
+colorama==0.4.6
+readerwriterlock==1.0.9
+requests==2.31.0
+tls_client==1.0
+typing_extensions==4.12.2
+validators==0.33.0
+websockets==12.0
+redis==5.0.0
+pymongo==4.6.0
+pyotp==2.9.0
+beautifulsoup4==4.12.3
